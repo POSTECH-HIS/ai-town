@@ -2,12 +2,13 @@ import { v } from 'convex/values';
 import { internal } from './_generated/api';
 import { DatabaseReader, MutationCtx, mutation } from './_generated/server';
 import { Descriptions } from '../data/characters';
-import * as map from '../data/gentle';
 import { insertInput } from './aiTown/insertInput';
 import { Id } from './_generated/dataModel';
 import { createEngine } from './aiTown/main';
 import { ENGINE_ACTION_DURATION } from './constants';
 import { detectMismatchedLLMProvider } from './util/llm';
+import { getMapData } from './mapData';
+import { ACTIVE_MAP_NAME } from '../data/activeMap';
 
 const init = mutation({
   args: {
@@ -67,18 +68,34 @@ async function getOrCreateDefaultWorld(ctx: MutationCtx) {
     worldId: worldId,
   });
   worldStatus = (await ctx.db.get(worldStatusId))!;
+
+  // Store only map metadata (actual data loaded from mapData.ts at runtime)
+  const mapName = ACTIVE_MAP_NAME;
+  console.log(`Initializing world with map: ${mapName}`);
+
+  const mapData = getMapData(mapName);
+  if (!mapData) {
+    throw new Error(`Map not found: ${mapName}`);
+  }
+
+  // Delete existing maps for this world if any
+  const existingMaps = await ctx.db
+    .query('maps')
+    .withIndex('worldId', (q) => q.eq('worldId', worldId))
+    .collect();
+  for (const map of existingMaps) {
+    await ctx.db.delete(map._id);
+  }
+
+  // Store only metadata to avoid DB size limits (full data loaded at runtime)
   await ctx.db.insert('maps', {
     worldId,
-    width: map.mapwidth,
-    height: map.mapheight,
-    tileSetUrl: map.tilesetpath,
-    tileSetDimX: map.tilesetpxw,
-    tileSetDimY: map.tilesetpxh,
-    tileDim: map.tiledim,
-    bgTiles: map.bgtiles,
-    objectTiles: map.objmap,
-    animatedSprites: map.animatedsprites,
+    width: mapData.width,
+    height: mapData.height,
+    tileDim: mapData.tileDim,
+    mapName: mapName,
   });
+
   await ctx.scheduler.runAfter(0, internal.aiTown.main.runStep, {
     worldId,
     generationNumber: engine.generationNumber,

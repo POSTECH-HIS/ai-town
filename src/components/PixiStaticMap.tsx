@@ -25,28 +25,77 @@ const animations = {
 export const PixiStaticMap = PixiComponent('StaticMap', {
   create: (props: { map: WorldMap; [k: string]: any }) => {
     const map = props.map;
-    const numxtiles = Math.floor(map.tileSetDimX / map.tileDim);
-    const numytiles = Math.floor(map.tileSetDimY / map.tileDim);
-    const bt = PIXI.BaseTexture.from(map.tileSetUrl, {
-      scaleMode: PIXI.SCALE_MODES.NEAREST,
-    });
 
-    const tiles = [];
-    for (let x = 0; x < numxtiles; x++) {
-      for (let y = 0; y < numytiles; y++) {
-        tiles[x + y * numxtiles] = new PIXI.Texture(
-          bt,
-          new PIXI.Rectangle(x * map.tileDim, y * map.tileDim, map.tileDim, map.tileDim),
-        );
+    // Support both legacy single tileset and new multi-tileset
+    let tileTextures: Map<number, PIXI.Texture> = new Map();
+
+    if (map.tilesets && map.tilesets.length > 0) {
+      // Multi-tileset support
+      for (const tileset of map.tilesets) {
+        const bt = PIXI.BaseTexture.from(tileset.imageUrl, {
+          scaleMode: PIXI.SCALE_MODES.NEAREST,
+        });
+
+        const columns = tileset.columns;
+        const rows = Math.ceil(tileset.tileCount / columns);
+
+        // Create texture for each tile in this tileset
+        for (let tileIndex = 0; tileIndex < tileset.tileCount; tileIndex++) {
+          const col = tileIndex % columns;
+          const row = Math.floor(tileIndex / columns);
+          const globalId = tileset.firstgid + tileIndex;
+
+          tileTextures.set(
+            globalId,
+            new PIXI.Texture(
+              bt,
+              new PIXI.Rectangle(
+                col * tileset.tileWidth,
+                row * tileset.tileHeight,
+                tileset.tileWidth,
+                tileset.tileHeight
+              )
+            )
+          );
+        }
+      }
+    } else if (map.tileSetUrl && map.tileSetDimX && map.tileSetDimY) {
+      // Legacy single tileset support
+      const numxtiles = Math.floor(map.tileSetDimX / map.tileDim);
+      const numytiles = Math.floor(map.tileSetDimY / map.tileDim);
+      const bt = PIXI.BaseTexture.from(map.tileSetUrl, {
+        scaleMode: PIXI.SCALE_MODES.NEAREST,
+      });
+
+      for (let x = 0; x < numxtiles; x++) {
+        for (let y = 0; y < numytiles; y++) {
+          const tileIndex = x + y * numxtiles;
+          tileTextures.set(
+            tileIndex,
+            new PIXI.Texture(
+              bt,
+              new PIXI.Rectangle(x * map.tileDim, y * map.tileDim, map.tileDim, map.tileDim)
+            )
+          );
+        }
       }
     }
+
     const screenxtiles = map.bgTiles[0].length;
     const screenytiles = map.bgTiles[0][0].length;
 
     const container = new PIXI.Container();
-    const allLayers = [...map.bgTiles, ...map.objectTiles];
+    // Only render background tiles (bgTiles)
+    // objectTiles is used for collision detection only, not rendering
+    const allLayers = [...map.bgTiles];
 
-    // blit bg & object layers of map onto canvas
+    // Tiled flip flags
+    const FLIPPED_HORIZONTALLY_FLAG = 0x80000000;
+    const FLIPPED_VERTICALLY_FLAG = 0x40000000;
+    const FLIPPED_DIAGONALLY_FLAG = 0x20000000;
+    const ALL_FLIP_FLAGS = FLIPPED_HORIZONTALLY_FLAG | FLIPPED_VERTICALLY_FLAG | FLIPPED_DIAGONALLY_FLAG;
+
+    // blit bg layers of map onto canvas
     for (let i = 0; i < screenxtiles * screenytiles; i++) {
       const x = i % screenxtiles;
       const y = Math.floor(i / screenxtiles);
@@ -55,12 +104,63 @@ export const PixiStaticMap = PixiComponent('StaticMap', {
 
       // Add all layers of backgrounds.
       for (const layer of allLayers) {
-        const tileIndex = layer[x][y];
+        const rawTileIndex = layer[x][y];
         // Some layers may not have tiles at this location.
-        if (tileIndex === -1) continue;
-        const ctile = new PIXI.Sprite(tiles[tileIndex]);
-        ctile.x = xPx;
-        ctile.y = yPx;
+        if (rawTileIndex === -1) continue;
+
+        // Extract flip flags and actual tile ID
+        const flippedH = (rawTileIndex & FLIPPED_HORIZONTALLY_FLAG) !== 0;
+        const flippedV = (rawTileIndex & FLIPPED_VERTICALLY_FLAG) !== 0;
+        const flippedD = (rawTileIndex & FLIPPED_DIAGONALLY_FLAG) !== 0;
+        const tileIndex = rawTileIndex & ~ALL_FLIP_FLAGS;
+
+        const texture = tileTextures.get(tileIndex);
+        if (!texture) {
+          console.warn(`Missing texture for tile index ${tileIndex} at (${x}, ${y})`);
+          continue;
+        }
+
+        const ctile = new PIXI.Sprite(texture);
+
+        // Tiled flip handling: use transformation matrix approach
+        // D, H, V flags create 8 possible transformations
+        // Reference: https://doc.mapeditor.org/en/stable/reference/tmx-map-format/#tile-flipping
+
+        // Set anchor to center for all transformations
+        ctile.anchor.set(0.5, 0.5);
+        ctile.x = xPx + map.tileDim / 2;
+        ctile.y = yPx + map.tileDim / 2;
+
+        // Handle all 8 combinations explicitly
+        if (!flippedD && !flippedH && !flippedV) {
+          // 000: No transformation
+          // default state
+        } else if (!flippedD && !flippedH && flippedV) {
+          // 001: Flip vertically
+          ctile.scale.y = -1;
+        } else if (!flippedD && flippedH && !flippedV) {
+          // 010: Flip horizontally
+          ctile.scale.x = -1;
+        } else if (!flippedD && flippedH && flippedV) {
+          // 011: Flip horizontally and vertically (= rotate 180°)
+          ctile.scale.x = -1;
+          ctile.scale.y = -1;
+        } else if (flippedD && !flippedH && !flippedV) {
+          // 100: Diagonal flip (transpose) = rotate 90° CW + flip vertically
+          ctile.rotation = Math.PI / 2; // 90° clockwise
+          ctile.scale.y = -1;
+        } else if (flippedD && !flippedH && flippedV) {
+          // 101: Diagonal + flip V = rotate 270° CW (or 90° CCW)
+          ctile.rotation = -Math.PI / 2; // 90° counter-clockwise
+        } else if (flippedD && flippedH && !flippedV) {
+          // 110: Diagonal + flip H = rotate 90° CW
+          ctile.rotation = Math.PI / 2; // 90° clockwise
+        } else if (flippedD && flippedH && flippedV) {
+          // 111: Diagonal + flip H + flip V = rotate 270° CW + flip V
+          ctile.rotation = -Math.PI / 2; // 90° counter-clockwise
+          ctile.scale.y = -1;
+        }
+
         container.addChild(ctile);
       }
     }

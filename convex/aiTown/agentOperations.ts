@@ -31,7 +31,7 @@ export const agentRememberConversation = internalAction({
       args.playerId as GameId<'players'>,
       args.conversationId as GameId<'conversations'>,
     );
-    await sleep(Math.random() * 1000);
+    await sleep(Math.random() * 3000);
     await ctx.runMutation(api.aiTown.main.sendInput, {
       worldId: args.worldId,
       name: 'finishRememberConversation',
@@ -113,7 +113,7 @@ export const agentDoSomething = internalAction({
     // Decide whether to do an activity or wander somewhere.
     if (!player.pathfinding) {
       if (recentActivity || justLeftConversation) {
-        await sleep(Math.random() * 1000);
+        await sleep(Math.random() * 3000);
         await ctx.runMutation(api.aiTown.main.sendInput, {
           worldId: args.worldId,
           name: 'finishDoSomething',
@@ -127,7 +127,7 @@ export const agentDoSomething = internalAction({
       } else {
         // TODO: have LLM choose the activity & emoji
         const activity = ACTIVITIES[Math.floor(Math.random() * ACTIVITIES.length)];
-        await sleep(Math.random() * 1000);
+        await sleep(Math.random() * 3000);
         await ctx.runMutation(api.aiTown.main.sendInput, {
           worldId: args.worldId,
           name: 'finishDoSomething',
@@ -156,7 +156,8 @@ export const agentDoSomething = internalAction({
 
     // TODO: We hit a lot of OCC errors on sending inputs in this file. It's
     // easy for them to get scheduled at the same time and line up in time.
-    await sleep(Math.random() * 1000);
+    // Increased jitter to 0-3 seconds to reduce collision probability.
+    await sleep(Math.random() * 3000);
     await ctx.runMutation(api.aiTown.main.sendInput, {
       worldId: args.worldId,
       name: 'finishDoSomething',

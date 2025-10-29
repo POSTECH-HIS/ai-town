@@ -189,9 +189,11 @@ export class Player {
     }
     let position;
     for (let attempt = 0; attempt < 10; attempt++) {
+      // Spawn at least 2 tiles away from the edge to avoid edge cases
+      const margin = 20;
       const candidate = {
-        x: Math.floor(Math.random() * game.worldMap.width),
-        y: Math.floor(Math.random() * game.worldMap.height),
+        x: margin + Math.floor(Math.random() * (game.worldMap.width - margin * 2)),
+        y: margin + Math.floor(Math.random() * (game.worldMap.height - margin * 2)),
       };
       if (blocked(game, now, candidate)) {
         continue;

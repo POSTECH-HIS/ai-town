@@ -24,11 +24,13 @@ export const aiTownTables = {
     status: v.union(v.literal('running'), v.literal('stoppedByDeveloper'), v.literal('inactive')),
   }).index('worldId', ['worldId']),
 
-  // This table contains the map data for a given world. Since it's a bit larger than the player
-  // state and infrequently changes, we store it in a separate table.
+  // This table contains map metadata. Full map data is loaded from mapData.ts at runtime.
   maps: defineTable({
     worldId: v.id('worlds'),
-    ...serializedWorldMap,
+    width: v.number(),
+    height: v.number(),
+    tileDim: v.number(),
+    mapName: v.string(), // Reference to map in AVAILABLE_MAPS
   }).index('worldId', ['worldId']),
 
   // Human readable text describing players and agents that's stored in separate tables, just like `maps`.

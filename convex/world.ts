@@ -11,6 +11,7 @@ import {
 import { playerId } from './aiTown/ids';
 import { kickEngine, startEngine, stopEngine } from './aiTown/main';
 import { engineInsertInput } from './engine/abstractGame';
+import { getMapData } from './mapData';
 
 export const defaultWorldStatus = query({
   handler: async (ctx) => {
@@ -216,13 +217,29 @@ export const gameDescriptions = query({
       .query('agentDescriptions')
       .withIndex('worldId', (q) => q.eq('worldId', args.worldId))
       .collect();
-    const worldMap = await ctx.db
+    const mapMetadata = await ctx.db
       .query('maps')
       .withIndex('worldId', (q) => q.eq('worldId', args.worldId))
       .first();
-    if (!worldMap) {
+    if (!mapMetadata) {
       throw new Error(`No map for world: ${args.worldId}`);
     }
+
+    // Load full map data from mapData.ts based on mapName
+    const fullMapData = getMapData(mapMetadata.mapName);
+    if (!fullMapData) {
+      throw new Error(`Map data not found for map: ${mapMetadata.mapName}`);
+    }
+
+    // Merge metadata with full map data
+    const worldMap = {
+      ...fullMapData,
+      width: mapMetadata.width,
+      height: mapMetadata.height,
+      tileDim: mapMetadata.tileDim,
+      mapName: mapMetadata.mapName,
+    };
+
     return { worldMap, playerDescriptions, agentDescriptions };
   },
 });

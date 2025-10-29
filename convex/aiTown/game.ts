@@ -25,6 +25,7 @@ import { internal } from '../_generated/api';
 import { HistoricalObject } from '../engine/historicalObject';
 import { AgentDescription, serializedAgentDescription } from './agentDescription';
 import { parseMap, serializeMap } from '../util/object';
+import { getMapData } from '../mapData';
 
 const gameState = v.object({
   world: v.object(serializedWorld),
@@ -127,12 +128,23 @@ export class Game extends AbstractGame {
     const agentDescriptions = agentDescriptionsDocs
       .filter((a) => !!world.agents.find((p) => p.id === a.agentId))
       .map(({ _id, _creationTime, worldId: _, ...doc }) => doc);
-    const {
-      _id: _mapId,
-      _creationTime: _mapCreationTime,
-      worldId: _mapWorldId,
-      ...worldMap
-    } = worldMapDoc;
+
+    // Load full map data based on mapName from database
+    const fullMapData = getMapData(worldMapDoc.mapName);
+    if (!fullMapData) {
+      throw new Error(`Map data not found for map: ${worldMapDoc.mapName}`);
+    }
+
+    // Merge database metadata with full map data
+    const worldMap = {
+      ...fullMapData,
+      // Override with any metadata from DB if it differs
+      width: worldMapDoc.width,
+      height: worldMapDoc.height,
+      tileDim: worldMapDoc.tileDim,
+      mapName: worldMapDoc.mapName,
+    };
+
     return {
       engine,
       gameState: {
@@ -334,10 +346,20 @@ export class Game extends AbstractGame {
         .query('maps')
         .withIndex('worldId', (q) => q.eq('worldId', worldId))
         .unique();
+
+      // Save only metadata to avoid DB size limits
+      const mapMetadata = {
+        worldId,
+        width: worldMap.width,
+        height: worldMap.height,
+        tileDim: worldMap.tileDim,
+        mapName: worldMap.mapName,
+      };
+
       if (existing) {
-        await ctx.db.replace(existing._id, { worldId, ...worldMap });
+        await ctx.db.replace(existing._id, mapMetadata);
       } else {
-        await ctx.db.insert('maps', { worldId, ...worldMap });
+        await ctx.db.insert('maps', mapMetadata);
       }
     }
     // Start the desired agent operations.
