@@ -69,6 +69,7 @@ function categorizeLayers(layers: TiledLayer[]): {
 /**
  * Get collision layers from the map
  * These layers define where players/agents can and cannot walk
+ * Only Collisions layer is impassable
  */
 function getCollisionLayers(layers: TiledLayer[]): TiledLayer[] {
   return layers.filter(layer => {
@@ -76,10 +77,35 @@ function getCollisionLayers(layers: TiledLayer[]): TiledLayer[] {
     if (!layer.data || layer.data.length === 0) return false;
 
     const name = layer.name.toLowerCase();
-    // Include layers that define collision/walkability
-    return name.includes('collision') ||
-           name.includes('object interaction');
+    // Only Collisions layer blocks movement
+    return name === 'collisions';
   });
+}
+
+/**
+ * Get the exterior ground layer from the map
+ * This layer is used for determining valid spawn locations
+ */
+function getExteriorGroundLayer(layers: TiledLayer[]): TiledLayer | undefined {
+  console.log(`Looking for Exterior Ground layer in ${layers.length} layers...`);
+
+  const layer = layers.find(layer => {
+    const name = layer.name.toLowerCase();
+    console.log(`  Checking layer: "${layer.name}" (type: ${layer.type}, hasData: ${!!layer.data})`);
+
+    if (layer.type !== 'tilelayer') return false;
+    if (!layer.data || layer.data.length === 0) return false;
+
+    return name === 'exterior ground';
+  });
+
+  if (layer) {
+    console.log(`✓ Found layer "${layer.name}" for exterior ground`);
+  } else {
+    console.log('✗ Exterior Ground layer not found');
+  }
+
+  return layer;
 }
 
 /**
@@ -101,6 +127,18 @@ export function convertTiledMapToAITown(
   const tilesets = tiledMap.tilesets.map(ts =>
     convertTileset(ts, assetsUrlPrefix)
   );
+
+  // Get exterior ground layer for spawn locations (before filtering visible layers)
+  const exteriorGroundLayer = getExteriorGroundLayer(tiledMap.layers);
+  const exteriorGroundTiles = exteriorGroundLayer
+    ? convertLayerTo2D(exteriorGroundLayer.data!, tiledMap.width, tiledMap.height)
+    : undefined;
+
+  if (exteriorGroundTiles) {
+    console.log('✓ Found Exterior Ground layer for spawn locations');
+  } else {
+    console.warn('⚠ No Exterior Ground layer found. Spawn will use any ground tiles.');
+  }
 
   // Filter and convert layers
   const visibleLayers = getVisibleTileLayers(tiledMap.layers, layerFilter);
@@ -142,5 +180,6 @@ export function convertTiledMapToAITown(
     // Note: objectTiles is used for collision detection in movement.ts, not rendering
     objectTiles: finalObjectTiles,
     animatedSprites: [],
+    exteriorGroundLayer: exteriorGroundTiles,
   };
 }

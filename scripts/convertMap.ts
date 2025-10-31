@@ -123,13 +123,26 @@ function categorizeLayers(layers: any[]) {
 }
 
 // Get collision layers
+// Only Collisions layer is impassable
 function getCollisionLayers(layers: any[]) {
   return layers.filter((layer: any) => {
     if (layer.type !== 'tilelayer') return false;
     if (!layer.data || layer.data.length === 0) return false;
 
     const name = layer.name.toLowerCase();
-    return name.includes('collision') || name.includes('object interaction');
+    // Only Collisions layer blocks movement
+    return name === 'collisions';
+  });
+}
+
+// Get exterior ground layer for spawn locations
+function getExteriorGroundLayer(layers: any[]) {
+  return layers.find((layer: any) => {
+    if (layer.type !== 'tilelayer') return false;
+    if (!layer.data || layer.data.length === 0) return false;
+
+    const name = layer.name.toLowerCase();
+    return name === 'exterior ground';
   });
 }
 
@@ -140,6 +153,18 @@ console.log(`Found ${visibleLayers.length} visible layers (will be rendered)`);
 // Get collision layers separately (not rendered, only for collision detection)
 const collisionLayers = getCollisionLayers(tiledMap.layers);
 console.log(`Collision layers: ${collisionLayers.length} (not rendered, collision detection only)`);
+
+// Get exterior ground layer for spawn locations
+const exteriorGroundLayer = getExteriorGroundLayer(tiledMap.layers);
+const exteriorGroundTiles = exteriorGroundLayer
+  ? convertLayerTo2D(exteriorGroundLayer.data, tiledMap.width, tiledMap.height)
+  : undefined;
+
+if (exteriorGroundTiles) {
+  console.log('✓ Found Exterior Ground layer for spawn locations');
+} else {
+  console.warn('⚠ No Exterior Ground layer found. Spawn will use any ground tiles.');
+}
 
 // Convert tilesets
 const tilesets = tiledMap.tilesets.map((ts: any) => {
@@ -193,6 +218,7 @@ export const mapData: SerializedWorldMap = {
   bgTiles: ${JSON.stringify(bgTiles)},
   objectTiles: ${JSON.stringify(finalObjectTiles)},
   animatedSprites: [],
+  exteriorGroundLayer: ${JSON.stringify(exteriorGroundTiles)},
 };
 
 export default mapData;

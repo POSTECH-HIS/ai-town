@@ -47,6 +47,9 @@ export const serializedWorldMap = {
   bgTiles: v.optional(v.array(v.array(v.array(v.number())))),
   objectTiles: v.optional(v.array(tileLayer)),
   animatedSprites: v.optional(v.array(v.object(animatedSprite))),
+
+  // Exterior ground layer for spawn locations
+  exteriorGroundLayer: v.optional(tileLayer),
 };
 export type SerializedWorldMap = ObjectType<typeof serializedWorldMap>;
 
@@ -68,6 +71,7 @@ export class WorldMap {
   bgTiles: TileLayer[];
   objectTiles: TileLayer[];
   animatedSprites: AnimatedSprite[];
+  exteriorGroundLayer?: TileLayer;
 
   constructor(serialized: SerializedWorldMap) {
     this.width = serialized.width;
@@ -81,6 +85,7 @@ export class WorldMap {
     this.bgTiles = serialized.bgTiles || [];
     this.objectTiles = serialized.objectTiles || [];
     this.animatedSprites = serialized.animatedSprites || [];
+    this.exteriorGroundLayer = serialized.exteriorGroundLayer;
   }
 
   serialize(): SerializedWorldMap {
@@ -96,6 +101,48 @@ export class WorldMap {
       bgTiles: this.bgTiles,
       objectTiles: this.objectTiles,
       animatedSprites: this.animatedSprites,
+      exteriorGroundLayer: this.exteriorGroundLayer,
     };
+  }
+
+  /**
+   * Check if a position has an exterior ground tile
+   * Returns true if the exterior ground layer has a non-empty tile at this position
+   */
+  hasExteriorGround(x: number, y: number): boolean {
+    // Check bounds
+    if (x < 0 || y < 0 || x >= this.width || y >= this.height) {
+      return false;
+    }
+
+    // If no exterior ground layer, fall back to checking any ground
+    if (!this.exteriorGroundLayer) {
+      return this.hasAnyGround(x, y);
+    }
+
+    const floorX = Math.floor(x);
+    const floorY = Math.floor(y);
+
+    // Check if exterior ground layer has a tile here
+    const layer = this.exteriorGroundLayer;
+    return layer[floorX] && layer[floorX][floorY] !== undefined && layer[floorX][floorY] !== -1;
+  }
+
+  /**
+   * Check if a position has any ground tiles
+   * Returns true if any background layer has a non-empty tile at this position
+   */
+  private hasAnyGround(x: number, y: number): boolean {
+    const floorX = Math.floor(x);
+    const floorY = Math.floor(y);
+
+    // Check if any background layer has a tile here
+    for (const layer of this.bgTiles) {
+      if (layer[floorX] && layer[floorX][floorY] !== undefined && layer[floorX][floorY] !== -1) {
+        return true;
+      }
+    }
+
+    return false;
   }
 }

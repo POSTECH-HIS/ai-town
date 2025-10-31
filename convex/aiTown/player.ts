@@ -188,21 +188,25 @@ export class Player {
       }
     }
     let position;
-    for (let attempt = 0; attempt < 10; attempt++) {
+    for (let attempt = 0; attempt < 100; attempt++) {
       // Spawn at least 2 tiles away from the edge to avoid edge cases
       const margin = 20;
       const candidate = {
         x: margin + Math.floor(Math.random() * (game.worldMap.width - margin * 2)),
         y: margin + Math.floor(Math.random() * (game.worldMap.height - margin * 2)),
       };
+      // Only spawn on exterior ground tiles (not blocked and has exterior ground)
       if (blocked(game, now, candidate)) {
+        continue;
+      }
+      if (!game.worldMap.hasExteriorGround(candidate.x, candidate.y)) {
         continue;
       }
       position = candidate;
       break;
     }
     if (!position) {
-      throw new Error(`Failed to find a free position!`);
+      throw new Error(`Failed to find a free position after 100 attempts!`);
     }
     const facingOptions = [
       { dx: 1, dy: 0 },
