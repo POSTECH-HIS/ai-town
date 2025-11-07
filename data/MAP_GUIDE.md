@@ -11,6 +11,7 @@ AI Town은 **모든 Tiled 맵**을 지원하며 **다중 타일셋**과 **무제
 - ✅ 모든 크기의 맵 처리 (1MB 데이터베이스 제한 없음!)
 - ✅ 맵 간 쉬운 전환
 - ✅ 구버전 맵과 호환
+- ✨ **Semantic Map 지원** - 맵의 의미론적 정보 (공간, 오브젝트, 위치 등)를 이해
 
 ## 빠른 시작: 기존 맵 전환하기
 
@@ -251,6 +252,476 @@ npm run dev
 - [ ] `npx convex run init` 실행
 - [ ] `npm run dev` 실행
 - [ ] 브라우저에서 맵 확인
+
+---
+
+## Semantic Map System (의미론적 맵)
+
+### 📖 개요
+
+**Semantic Map**은 맵의 각 타일에 의미론적 정보를 부여하는 시스템입니다. 이를 통해 에이전트가 "주방", "침실", "식탁" 등의 공간을 이해하고, 특정 오브젝트(냉장고, 침대, 의자)가 있는 위치를 찾을 수 있습니다.
+
+이 시스템은 [generative_agents](https://github.com/joonspk-research/generative_agents)의 `maze.py` 기능을 이식한 것으로, CSV 파일을 사용하여 맵의 의미론적 구조를 정의합니다.
+
+**주요 기능:**
+- 🏠 **계층적 공간 구조**: 월드 → 섹터 → 아레나 → 게임 오브젝트
+- 📍 **위치 기반 쿼리**: "부엌에 있는 모든 타일", "냉장고가 있는 위치" 등
+- 🎯 **스폰 위치 관리**: 특정 이름을 가진 스폰 위치 정의
+- 🤖 **에이전트 행동**: 에이전트가 공간과 오브젝트를 이해하고 상호작용
+
+### 🏗️ 계층 구조
+
+Semantic Map은 다음과 같은 4단계 계층 구조를 사용합니다:
+
+```
+World (월드)
+└── Sector (섹터 - 건물이나 큰 구역)
+    └── Arena (아레나 - 방이나 작은 공간)
+        └── Game Object (게임 오브젝트 - 가구, 물건 등)
+```
+
+**예시:**
+```
+the Ville                              (World)
+└── Giorgio Rossi's apartment          (Sector)
+    └── kitchen                        (Arena)
+        └── stove                      (Game Object)
+        └── refrigerator               (Game Object)
+    └── bedroom                        (Arena)
+        └── bed                        (Game Object)
+```
+
+**추가로:**
+- **Spawning Location**: 에이전트가 생성될 수 있는 특별한 위치 (예: "kitchen-spawn", "bedroom-entrance")
+
+### 📂 CSV 파일 구조
+
+Semantic Map 데이터는 다음 위치의 CSV 파일들에 저장됩니다:
+
+```
+environment/frontend_server/static_dirs/assets/{맵이름}/matrix/
+├── maze/                              # 맵 레이아웃 (1D 배열)
+│   ├── sector_maze.csv                # 섹터 레이어
+│   ├── arena_maze.csv                 # 아레나 레이어
+│   ├── game_object_maze.csv           # 게임 오브젝트 레이어
+│   └── spawning_location_maze.csv     # 스폰 위치 레이어
+└── special_blocks/                    # 타일 ID → 의미 매핑
+    ├── world_blocks.csv               # 월드 정의
+    ├── sector_blocks.csv              # 섹터 정의
+    ├── arena_blocks.csv               # 아레나 정의
+    ├── game_object_blocks.csv         # 오브젝트 정의
+    └── spawning_location_blocks.csv   # 스폰 위치 정의
+```
+
+#### Maze 파일 형식 (레이아웃)
+
+각 maze CSV 파일은 **1행짜리 1D 배열**입니다 (width × height 개의 타일 ID):
+
+```csv
+0, 0, 32135, 32135, 32135, ..., 0, 0
+```
+
+- 각 값은 타일 ID (숫자)
+- 순서: 왼쪽에서 오른쪽, 위에서 아래로 (row-major order)
+- `0`은 해당 타일에 정보가 없음을 의미
+
+#### Block 파일 형식 (의미 정의)
+
+각 block CSV 파일은 **타일 ID를 의미론적 정보로 매핑**합니다:
+
+**world_blocks.csv:**
+```csv
+tile_id,world_name
+12345,the Ville
+```
+
+**sector_blocks.csv:**
+```csv
+tile_id,world_name,sector_name
+32135,the Ville,Giorgio Rossi's apartment
+32136,the Ville,Carlos Gomez's apartment
+```
+
+**arena_blocks.csv:**
+```csv
+tile_id,world_name,sector_name,arena_name
+45678,the Ville,Giorgio Rossi's apartment,kitchen
+45679,the Ville,Giorgio Rossi's apartment,bedroom
+```
+
+**game_object_blocks.csv:**
+```csv
+tile_id,world_name,sector_or_all,object_name
+56789,the Ville,Giorgio Rossi's apartment,stove
+56790,the Ville,all,chair
+```
+
+**spawning_location_blocks.csv:**
+```csv
+tile_id,spawning_location_name
+67890,kitchen-entrance
+67891,bedroom-spawn
+```
+
+### 🔧 Semantic Map이 있는 맵 추가하기
+
+기존 맵 추가 프로세스에 semantic map 지원을 추가하려면:
+
+#### 1단계: CSV 파일 준비
+
+맵 이름이 `my_map`이라면, 다음 경로에 CSV 파일을 준비합니다:
+
+```bash
+mkdir -p environment/frontend_server/static_dirs/assets/my_map/matrix/maze
+mkdir -p environment/frontend_server/static_dirs/assets/my_map/matrix/special_blocks
+```
+
+#### 2단계: Maze CSV 파일 생성
+
+각 레이어에 대해 1D 배열을 생성합니다. 예를 들어, 10x10 맵의 경우:
+
+```bash
+# Python 스크립트 예시로 생성 가능
+import numpy as np
+
+width, height = 10, 10
+sector_maze = np.zeros(width * height, dtype=int)
+
+# 특정 영역에 타일 ID 할당
+# 예: (2,2)부터 (5,5)까지를 섹터 ID 100으로
+for y in range(2, 6):
+    for x in range(2, 6):
+        idx = y * width + x
+        sector_maze[idx] = 100
+
+# CSV로 저장 (1행)
+np.savetxt('sector_maze.csv', [sector_maze], delimiter=',', fmt='%d')
+```
+
+#### 3단계: Block CSV 파일 생성
+
+타일 ID를 의미로 매핑하는 파일들을 생성합니다:
+
+**sector_blocks.csv:**
+```csv
+100,my_world,main_building
+```
+
+**arena_blocks.csv:**
+```csv
+200,my_world,main_building,lobby
+```
+
+#### 4단계: 맵 변환 실행
+
+Semantic Map은 맵 변환 시 자동으로 파싱됩니다:
+
+```bash
+npx tsx scripts/convertMap.ts public/assets/my_map/my_map.json
+```
+
+**출력 예시:**
+```
+[ConvertTiledMap] Attempting to parse semantic data from CSV files...
+[ConvertTiledMap] CSV directories found, parsing semantic map...
+[SemanticMapParser] Reading maze layout CSVs...
+[SemanticMapParser] Built block definition maps
+  - 5 sector blocks
+  - 12 arena blocks
+  - 38 game object blocks
+  - 8 spawning location blocks
+[SemanticMapParser] ✓ Semantic map successfully parsed from CSV files
+
+✓ Map converted successfully!
+  Semantic Map: Yes ✓
+    - 63 semantic addresses parsed
+    - Sample addresses:
+      • my_world:main_building (100 tiles)
+      • my_world:main_building:lobby (25 tiles)
+      • my_world:main_building:kitchen:stove (4 tiles)
+```
+
+#### 5단계: 정상 작동 확인
+
+맵 변환 후 `data/maps/my_map.ts` 파일에서 semantic map이 포함되었는지 확인:
+
+```typescript
+export const mapData: SerializedWorldMap = {
+  width: 10,
+  height: 10,
+  // ... other fields ...
+  semanticMap: {
+    tiles: [ /* 2D array of tile semantics */ ],
+    addressTiles: [ /* address -> coordinates mapping */ ]
+  }
+};
+```
+
+### 💻 코드에서 Semantic Map 사용하기
+
+#### 기본 사용법
+
+Convex 함수에서 semantic map 접근:
+
+```typescript
+import { WorldMap } from './aiTown/worldMap';
+
+// WorldMap 인스턴스 생성
+const worldMap = new WorldMap(serializedMapData);
+
+// 특정 좌표의 의미론적 정보 가져오기
+const tileInfo = worldMap.getTileSemantics(x, y);
+
+if (tileInfo) {
+  console.log(`World: ${tileInfo.world}`);
+  console.log(`Sector: ${tileInfo.sector}`);
+  console.log(`Arena: ${tileInfo.arena}`);
+  console.log(`Game Object: ${tileInfo.game_object}`);
+  console.log(`Spawning Location: ${tileInfo.spawning_location}`);
+}
+```
+
+#### 주소로 좌표 찾기
+
+특정 공간이나 오브젝트에 해당하는 모든 타일 찾기:
+
+```typescript
+// "the Ville:Giorgio Rossi's apartment:kitchen" 아레나의 모든 좌표
+const kitchenTiles = worldMap.getAddressCoordinates(
+  "the Ville:Giorgio Rossi's apartment:kitchen"
+);
+
+for (const coord of kitchenTiles) {
+  console.log(`Kitchen tile at: (${coord.x}, ${coord.y})`);
+}
+
+// 냉장고가 있는 모든 위치
+const fridgeTiles = worldMap.getAddressCoordinates(
+  "the Ville:Giorgio Rossi's apartment:kitchen:refrigerator"
+);
+```
+
+#### SemanticMap 클래스 직접 사용
+
+더 고급 기능이 필요한 경우:
+
+```typescript
+import { SemanticMap } from './aiTown/semanticMap';
+
+const semanticMap = worldMap.semanticMap;
+
+if (semanticMap) {
+  // 특정 레벨까지의 경로 가져오기
+  const sectorPath = semanticMap.getTilePath({ x: 10, y: 15 }, 'sector');
+  // 결과: "the Ville:Giorgio Rossi's apartment"
+
+  const arenaPath = semanticMap.getTilePath({ x: 10, y: 15 }, 'arena');
+  // 결과: "the Ville:Giorgio Rossi's apartment:kitchen"
+
+  // 타일 정보 직접 접근
+  const tile = semanticMap.accessTile({ x: 10, y: 15 });
+  console.log(tile.arena); // "kitchen"
+}
+```
+
+#### 에이전트 행동 예시
+
+에이전트가 부엌으로 이동하는 예시:
+
+```typescript
+// agents/movement.ts 또는 유사한 파일에서
+
+export async function moveToKitchen(
+  ctx: ActionCtx,
+  agentId: Id<'agents'>,
+  targetAddress: string
+) {
+  const world = await ctx.runQuery(internal.world.get);
+  const worldMap = new WorldMap(world.mapData);
+
+  // 부엌의 모든 타일 가져오기
+  const kitchenTiles = worldMap.getAddressCoordinates(
+    "the Ville:Giorgio Rossi's apartment:kitchen"
+  );
+
+  if (kitchenTiles.size === 0) {
+    console.warn(`No tiles found for address: ${targetAddress}`);
+    return;
+  }
+
+  // 랜덤 타일 선택 또는 가장 가까운 타일 선택
+  const targetTile = Array.from(kitchenTiles)[0];
+
+  // 에이전트를 해당 위치로 이동 (기존 이동 시스템 사용)
+  await moveAgentTo(ctx, agentId, targetTile.x, targetTile.y);
+}
+```
+
+#### 스폰 위치 사용
+
+특정 이름의 스폰 위치에서 에이전트 생성:
+
+```typescript
+// 스폰 위치 찾기
+const spawnTiles = worldMap.getAddressCoordinates(
+  "<spawn_loc>kitchen-entrance"
+);
+
+if (spawnTiles.size > 0) {
+  const spawnPoint = Array.from(spawnTiles)[0];
+  await spawnAgent(ctx, agentId, spawnPoint.x, spawnPoint.y);
+}
+```
+
+### 🐛 Semantic Map 문제 해결
+
+#### ❌ Semantic Map이 파싱되지 않음
+
+**증상:**
+```
+[ConvertTiledMap] ℹ CSV directories not found, skipping semantic map
+```
+
+**원인:** CSV 파일 경로가 잘못되었거나 파일이 없습니다.
+
+**해결 방법:**
+1. CSV 디렉토리 경로 확인:
+   ```bash
+   ls -la environment/frontend_server/static_dirs/assets/the_ville/matrix/
+   ```
+
+2. 필요한 파일들이 있는지 확인:
+   ```bash
+   # maze 디렉토리
+   ls environment/frontend_server/static_dirs/assets/the_ville/matrix/maze/
+   # 예상: sector_maze.csv, arena_maze.csv, game_object_maze.csv, spawning_location_maze.csv
+
+   # special_blocks 디렉토리
+   ls environment/frontend_server/static_dirs/assets/the_ville/matrix/special_blocks/
+   # 예상: world_blocks.csv, sector_blocks.csv, arena_blocks.csv, etc.
+   ```
+
+3. 맵 이름이 디렉토리 이름과 일치하는지 확인:
+   - JSON 파일 위치: `public/assets/{맵이름}/map.json`
+   - CSV 파일 위치: `environment/frontend_server/static_dirs/assets/{맵이름}/matrix/`
+
+---
+
+#### ❌ CSV 파싱 오류
+
+**증상:**
+```
+[ConvertTiledMap] ⚠ Failed to parse semantic map from CSV files:
+  Failed to read CSV file: ...
+```
+
+**원인:** CSV 파일 형식이 잘못되었습니다.
+
+**해결 방법:**
+1. CSV 파일을 텍스트 에디터로 열어 형식 확인
+2. Maze 파일은 **1행만** 있어야 함 (width × height 개의 값)
+3. Block 파일은 **헤더 없이** 데이터만 포함
+4. 모든 값이 쉼표로 구분되어 있는지 확인
+5. 특수문자나 공백이 올바른지 확인
+
+**올바른 형식 예시:**
+
+sector_maze.csv (1행, 100개 값):
+```csv
+0,0,100,100,100,0,0,200,200,200,...
+```
+
+sector_blocks.csv (헤더 없음):
+```csv
+100,the Ville,Building A
+200,the Ville,Building B
+```
+
+---
+
+#### ❌ getTileSemantics가 undefined 반환
+
+**원인:** 해당 좌표에 semantic 정보가 없거나 맵에 semantic map이 없습니다.
+
+**해결 방법:**
+1. Semantic map이 파싱되었는지 확인:
+   ```typescript
+   if (!worldMap.semanticMap) {
+     console.warn('No semantic map available');
+   }
+   ```
+
+2. 좌표가 유효한지 확인:
+   ```typescript
+   if (x < 0 || x >= worldMap.width || y < 0 || y >= worldMap.height) {
+     console.warn('Coordinates out of bounds');
+   }
+   ```
+
+3. 해당 좌표에 실제로 semantic 정보가 있는지 CSV 파일 확인
+
+---
+
+#### ❌ getAddressCoordinates가 빈 Set 반환
+
+**원인:** 주소 형식이 잘못되었거나 해당 주소가 존재하지 않습니다.
+
+**해결 방법:**
+1. 주소 형식 확인:
+   - 섹터: `"world:sector"`
+   - 아레나: `"world:sector:arena"`
+   - 오브젝트: `"world:sector:arena:object"`
+   - 스폰: `"<spawn_loc>location_name"`
+
+2. 대소문자와 공백이 정확한지 확인 (CSV 파일과 일치해야 함)
+
+3. 맵 변환 시 출력된 주소 목록 확인:
+   ```
+   Sample addresses:
+     • the Ville:Giorgio Rossi's apartment (98 tiles)
+     • the Ville:Giorgio Rossi's apartment:kitchen (22 tiles)
+   ```
+
+4. 디버깅 코드로 사용 가능한 주소 확인:
+   ```typescript
+   if (worldMap.semanticMap) {
+     const allAddresses = worldMap.semanticMap.addressTiles;
+     for (const [address, coords] of allAddresses) {
+       console.log(`"${address}" -> ${coords.size} tiles`);
+     }
+   }
+   ```
+
+---
+
+#### 💡 Semantic Map 비활성화
+
+Semantic map이 필요 없는 경우 비활성화할 수 있습니다:
+
+`data/convertTiledMap.ts`에서:
+```typescript
+const serializedMap = convertTiledMapToAITown(
+  tiledMap,
+  mapName,
+  assetsUrlPrefix,
+  layerFilter,
+  false // enableSemanticMap을 false로 설정
+);
+```
+
+또는 맵 변환 스크립트 수정:
+```typescript
+// scripts/convertMap.ts
+const serializedMap = convertTiledMapToAITown(
+  tiledMap,
+  mapName,
+  assetsUrlPrefix,
+  layerFilter,
+  false // 여기를 false로
+);
+```
+
+---
 
 ## Map Requirements
 

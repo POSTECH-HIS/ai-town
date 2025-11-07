@@ -153,7 +153,22 @@ export class Agent {
               y: Math.floor((player.position.y + otherPlayer.position.y) / 2),
             };
           }
-          console.log(`Agent ${player.id} walking towards ${otherPlayer.id}...`, destination);
+          // Log semantic information if available
+          let locationInfo = '';
+          if (game.worldMap.semanticMap) {
+            try {
+              const tileInfo = game.worldMap.getTileSemantics(destination.x, destination.y);
+              if (tileInfo && (tileInfo.sector || tileInfo.arena || tileInfo.game_object)) {
+                let location = tileInfo.world;
+                if (tileInfo.sector) location += `:${tileInfo.sector}`;
+                if (tileInfo.arena) location += `:${tileInfo.arena}`;
+                locationInfo = ` at ${location}`;
+              }
+            } catch (error) {
+              // Ignore semantic lookup errors
+            }
+          }
+          console.log(`🚶 Agent ${player.id} walking towards ${otherPlayer.id}${locationInfo} (${destination.x}, ${destination.y})`);
           movePlayer(game, now, player, destination);
         }
         return;

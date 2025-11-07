@@ -10,6 +10,8 @@
 import type { SerializedWorldMap, Tileset as AITownTileset } from '../convex/aiTown/worldMap';
 import type { TiledMap, TiledTileset, TiledLayer } from './tiledMapLoader';
 import { convertLayerTo2D, getVisibleTileLayers } from './tiledMapLoader';
+import { parseSemanticMapFromCSV, getStandardCsvPaths } from './semanticMapParser';
+import * as fs from 'fs';
 
 /**
  * Convert a Tiled tileset to AI Town tileset format
@@ -115,13 +117,15 @@ function getExteriorGroundLayer(layers: TiledLayer[]): TiledLayer | undefined {
  * @param mapName - Name identifier for this map
  * @param assetsUrlPrefix - URL prefix for tileset images
  * @param layerFilter - Optional array of layer name patterns to include
+ * @param enableSemanticMap - Whether to parse semantic data from CSV files (default: true)
  * @returns SerializedWorldMap ready to be stored or used
  */
 export function convertTiledMapToAITown(
   tiledMap: TiledMap,
   mapName: string,
   assetsUrlPrefix: string,
-  layerFilter?: string[]
+  layerFilter?: string[],
+  enableSemanticMap: boolean = true
 ): SerializedWorldMap {
   // Convert tilesets
   const tilesets = tiledMap.tilesets.map(ts =>
@@ -170,6 +174,43 @@ export function convertTiledMapToAITown(
     finalObjectTiles = [];
   }
 
+  // ============================================================
+  // SEMANTIC MAP PARSING (CSV-based)
+  // Parse generative_agents CSV files if available
+  // ============================================================
+
+  let semanticMap = undefined;
+
+  if (enableSemanticMap) {
+    try {
+      console.log('\n[ConvertTiledMap] Attempting to parse semantic data from CSV files...');
+      const csvPaths = getStandardCsvPaths(mapName);
+
+      // Check if CSV files exist
+      const mazePathExists = fs.existsSync(csvPaths.mazePath);
+      const blocksPathExists = fs.existsSync(csvPaths.blocksPath);
+
+      if (mazePathExists && blocksPathExists) {
+        console.log('[ConvertTiledMap] CSV directories found, parsing semantic map...');
+        semanticMap = parseSemanticMapFromCSV(
+          tiledMap.width,
+          tiledMap.height,
+          csvPaths,
+          mapName
+        );
+        console.log('[ConvertTiledMap] ✓ Semantic map successfully parsed from CSV files');
+      } else {
+        console.log('[ConvertTiledMap] ℹ CSV directories not found, skipping semantic map');
+        console.log(`  Maze path: ${csvPaths.mazePath} (exists: ${mazePathExists})`);
+        console.log(`  Blocks path: ${csvPaths.blocksPath} (exists: ${blocksPathExists})`);
+      }
+    } catch (error) {
+      console.warn('[ConvertTiledMap] ⚠ Failed to parse semantic map from CSV files:');
+      console.warn(`  ${error instanceof Error ? error.message : String(error)}`);
+      console.warn('  Continuing without semantic map...');
+    }
+  }
+
   return {
     width: tiledMap.width,
     height: tiledMap.height,
@@ -181,5 +222,6 @@ export function convertTiledMapToAITown(
     objectTiles: finalObjectTiles,
     animatedSprites: [],
     exteriorGroundLayer: exteriorGroundTiles,
+    semanticMap, // ADD: Semantic map data from CSV files
   };
 }

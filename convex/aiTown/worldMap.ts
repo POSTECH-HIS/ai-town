@@ -1,4 +1,5 @@
 import { Infer, ObjectType, v } from 'convex/values';
+import { SemanticMap, serializedSemanticMap } from './semanticMap';
 
 // `layer[position.x][position.y]` is the tileIndex or -1 if empty.
 const tileLayer = v.array(v.array(v.number()));
@@ -50,6 +51,10 @@ export const serializedWorldMap = {
 
   // Exterior ground layer for spawn locations
   exteriorGroundLayer: v.optional(tileLayer),
+
+  // Semantic map data (from generative_agents CSV files)
+  // Provides hierarchical world/sector/arena/object information
+  semanticMap: v.optional(v.object(serializedSemanticMap)),
 };
 export type SerializedWorldMap = ObjectType<typeof serializedWorldMap>;
 
@@ -72,6 +77,7 @@ export class WorldMap {
   objectTiles: TileLayer[];
   animatedSprites: AnimatedSprite[];
   exteriorGroundLayer?: TileLayer;
+  semanticMap?: SemanticMap;
 
   constructor(serialized: SerializedWorldMap) {
     this.width = serialized.width;
@@ -86,6 +92,15 @@ export class WorldMap {
     this.objectTiles = serialized.objectTiles || [];
     this.animatedSprites = serialized.animatedSprites || [];
     this.exteriorGroundLayer = serialized.exteriorGroundLayer;
+
+    // Initialize semantic map if available
+    if (serialized.semanticMap) {
+      this.semanticMap = new SemanticMap(
+        serialized.semanticMap,
+        serialized.width,
+        serialized.height
+      );
+    }
   }
 
   serialize(): SerializedWorldMap {
@@ -102,6 +117,7 @@ export class WorldMap {
       objectTiles: this.objectTiles,
       animatedSprites: this.animatedSprites,
       exteriorGroundLayer: this.exteriorGroundLayer,
+      semanticMap: this.semanticMap?.serialize(),
     };
   }
 
@@ -144,5 +160,56 @@ export class WorldMap {
     }
 
     return false;
+  }
+
+  /**
+   * Get semantic information for a tile position
+   * Convenience method for accessing semantic map data
+   *
+   * @param x - X coordinate
+   * @param y - Y coordinate
+   * @returns TileSemantics object if semantic map is available, undefined otherwise
+   *
+   * Example:
+   * ```
+   * const semantics = worldMap.getTileSemantics(58, 9);
+   * if (semantics) {
+   *   console.log(semantics.arena); // "bedroom 2"
+   *   console.log(semantics.game_object); // "bed"
+   * }
+   * ```
+   */
+  getTileSemantics(x: number, y: number) {
+    if (!this.semanticMap) {
+      return undefined;
+    }
+    try {
+      return this.semanticMap.accessTile({ x, y });
+    } catch (error) {
+      console.warn(`Failed to get tile semantics at (${x}, ${y}):`, error);
+      return undefined;
+    }
+  }
+
+  /**
+   * Get all coordinates for a semantic address
+   * Convenience method for accessing semantic map data
+   *
+   * @param address - Hierarchical address (e.g., "the_ville:kitchen:stove")
+   * @returns Set of coordinates if semantic map is available, empty set otherwise
+   *
+   * Example:
+   * ```
+   * const kitchenTiles = worldMap.getAddressCoordinates('the_ville:kitchen');
+   * for (const coord of kitchenTiles) {
+   *   console.log(`Kitchen at (${coord.x}, ${coord.y})`);
+   * }
+   * ```
+   */
+  getAddressCoordinates(address: string) {
+    if (!this.semanticMap) {
+      return new Set();
+    }
+    return this.semanticMap.getTilesForAddress(address);
   }
 }

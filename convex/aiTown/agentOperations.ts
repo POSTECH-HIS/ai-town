@@ -171,9 +171,29 @@ export const agentDoSomething = internalAction({
 });
 
 function wanderDestination(worldMap: WorldMap) {
-  // Wander someonewhere at least one tile away from the edge.
-  return {
-    x: 1 + Math.floor(Math.random() * (worldMap.width - 2)),
-    y: 1 + Math.floor(Math.random() * (worldMap.height - 2)),
-  };
+  // Wander somewhere at least one tile away from the edge.
+  const x = 1 + Math.floor(Math.random() * (worldMap.width - 2));
+  const y = 1 + Math.floor(Math.random() * (worldMap.height - 2));
+
+  // Log semantic information if available
+  if (worldMap.semanticMap) {
+    try {
+      const tileInfo = worldMap.getTileSemantics(x, y);
+      if (tileInfo && (tileInfo.sector || tileInfo.arena || tileInfo.game_object)) {
+        let location = tileInfo.world;
+        if (tileInfo.sector) location += `:${tileInfo.sector}`;
+        if (tileInfo.arena) location += `:${tileInfo.arena}`;
+        if (tileInfo.game_object) location += `:${tileInfo.game_object}`;
+        console.log(`🚶 Wandering to ${location} (${x}, ${y})`);
+      } else {
+        console.log(`🚶 Wandering to (${x}, ${y})`);
+      }
+    } catch (error) {
+      console.log(`🚶 Wandering to (${x}, ${y})`);
+    }
+  } else {
+    console.log(`🚶 Wandering to (${x}, ${y})`);
+  }
+
+  return { x, y };
 }

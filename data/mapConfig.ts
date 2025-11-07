@@ -16,7 +16,6 @@
 import type { SerializedWorldMap } from '../convex/aiTown/worldMap';
 import * as gentle from './gentle';
 import { mapData as the_villeMap } from './maps/the_ville';
-import { mapData as testMapMap } from './maps/testMap';
 
 export interface MapConfig {
   /** Display name for this map */
@@ -62,12 +61,12 @@ export const AVAILABLE_MAPS: Record<string, MapConfig> = {
     description: 'Generative Agents map: 140x100 tiles, 18 tilesets, 17 layers',
   },
 
-  // Test map
-  testMap: {
-    name: 'Test Map',
-    data: testMapMap,
-    description: 'Custom test map: 45x32 tiles, 18 tilesets, collision layers enabled',
+  test_Map: {
+    name: 'test Map',
+    data: the_villeMap,
+    description: 'Just a test map using The Ville data',
   },
+
 };
 
 /**

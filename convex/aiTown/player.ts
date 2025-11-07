@@ -208,6 +208,29 @@ export class Player {
     if (!position) {
       throw new Error(`Failed to find a free position after 100 attempts!`);
     }
+
+    // Log spawn location with semantic information if available
+    if (game.worldMap.semanticMap) {
+      try {
+        const tileInfo = game.worldMap.getTileSemantics(position.x, position.y);
+        if (tileInfo && (tileInfo.sector || tileInfo.arena || tileInfo.spawning_location)) {
+          let location = tileInfo.world;
+          if (tileInfo.sector) location += `:${tileInfo.sector}`;
+          if (tileInfo.arena) location += `:${tileInfo.arena}`;
+          if (tileInfo.spawning_location) {
+            // console.log(`Player spawning at ${tileInfo.spawning_location} in ${location} (${position.x}, ${position.y})`);
+          } else {
+            // console.log(`Player spawning at ${location} (${position.x}, ${position.y})`);
+          }
+        } else {
+          // console.log(`Player spawning at (${position.x}, ${position.y})`);
+        }
+      } catch (error) {
+        // console.log(`Player spawning at (${position.x}, ${position.y})`);
+      }
+    } else {
+      // console.log(`Player spawning at (${position.x}, ${position.y})`);
+    }
     const facingOptions = [
       { dx: 1, dy: 0 },
       { dx: -1, dy: 0 },
@@ -304,6 +327,22 @@ export const playerInputs = {
       const player = game.world.players.get(playerId);
       if (!player) {
         throw new Error(`Invalid player ID ${playerId}`);
+      }
+      if (args.destination && game.worldMap.semanticMap) {
+        try {
+          const tileInfo = game.worldMap.semanticMap.accessTile(args.destination);
+          console.log(
+            `[USER MOVE] Player ${player.id} targeting (${args.destination.x}, ${args.destination.y})`,
+          );
+          console.log('[USER MOVE] Target Semantics:', tileInfo);
+          const path = game.worldMap.semanticMap.getTilePath(args.destination, 'game_object');
+          console.log(`[USER MOVE] Target Path: ${path}`);
+
+        } catch (e: any) {
+          console.warn(
+            `[USER MOVE] Could not get semantic info for target (${args.destination.x}, ${args.destination.y}): ${e.message}`,
+          );
+        }
       }
       if (args.destination) {
         movePlayer(game, now, player, args.destination);

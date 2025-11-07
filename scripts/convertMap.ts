@@ -2,6 +2,7 @@
 /**
  * Build-time map converter
  * Converts Tiled JSON maps to TypeScript modules for AI Town
+ * Now with semantic map support from generative_agents CSV files!
  *
  * Usage:
  *   npm run convert-map <json-path> [layer-filter...]
@@ -13,6 +14,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { convertTiledMapToAITown } from '../data/convertTiledMap';
 
 // Get arguments
 const jsonPathArg = process.argv[2];
@@ -30,6 +32,9 @@ if (!jsonPathArg) {
 const jsonPath = path.resolve(process.cwd(), jsonPathArg);
 const layerFilter = layerFilterArgs.length > 0 ? layerFilterArgs : undefined;
 
+console.log(`\n${'='.repeat(60)}`);
+console.log(`AI-Town Map Converter with Semantic Support`);
+console.log(`${'='.repeat(60)}\n`);
 console.log(`Converting map from: ${jsonPath}`);
 if (layerFilter) {
   console.log(`Layer filter: ${layerFilter.join(', ')}`);
@@ -48,158 +53,24 @@ const tiledMap = JSON.parse(tiledMapContent);
 const mapName = path.basename(path.dirname(jsonPath));
 const assetsUrlPrefix = '/ai-town/assets/';
 
-console.log(`Map name: ${mapName}`);
+console.log(`\nMap Information:`);
+console.log(`  Name: ${mapName}`);
+console.log(`  Size: ${tiledMap.width}x${tiledMap.height}`);
+console.log(`  Tile Size: ${tiledMap.tilewidth}x${tiledMap.tileheight}px`);
+console.log(`  Layers: ${tiledMap.layers.length}`);
 
-// Import conversion functions
-// Note: We'll inline the conversion logic to avoid module loading issues
+// Convert the map using our conversion function
+console.log(`\n${'─'.repeat(60)}`);
+console.log(`Converting map...`);
+console.log(`${'─'.repeat(60)}\n`);
 
-// Convert layer to 2D array (preserving flip flags)
-function convertLayerTo2D(layerData: number[], width: number, height: number): number[][] {
-  const result: number[][] = [];
-
-  // Tiled flip flags (bits 29-31) - we preserve these for rendering
-  const FLIPPED_HORIZONTALLY_FLAG = 0x80000000;
-  const FLIPPED_VERTICALLY_FLAG = 0x40000000;
-  const FLIPPED_DIAGONALLY_FLAG = 0x20000000;
-  const ALL_FLIP_FLAGS = FLIPPED_HORIZONTALLY_FLAG | FLIPPED_VERTICALLY_FLAG | FLIPPED_DIAGONALLY_FLAG;
-
-  for (let x = 0; x < width; x++) {
-    result[x] = [];
-    for (let y = 0; y < height; y++) {
-      const rawTileId = layerData[y * width + x];
-
-      // Extract tile ID without flip flags
-      const tileId = rawTileId & ~ALL_FLIP_FLAGS;
-
-      // Preserve flip flags for rendering, convert empty (0) to -1
-      if (tileId === 0) {
-        result[x][y] = -1;
-      } else {
-        // Keep the original value with flip flags
-        result[x][y] = rawTileId;
-      }
-    }
-  }
-  return result;
-}
-
-// Filter visible layers
-function getVisibleLayers(layers: any[], filterNames?: string[]) {
-  return layers.filter((layer: any) => {
-    if (layer.type !== 'tilelayer') return false;
-    if (!layer.visible) return false;
-    if (!layer.data || layer.data.length === 0) return false;
-
-    const name = layer.name.toLowerCase();
-    if (name.includes('collision') || name.includes('block') || name.includes('spawn')) {
-      return false;
-    }
-
-    if (filterNames && filterNames.length > 0) {
-      return filterNames.some(pattern =>
-        name.includes(pattern.toLowerCase())
-      );
-    }
-
-    return true;
-  });
-}
-
-// Categorize layers
-function categorizeLayers(layers: any[]) {
-  const bgLayers: any[] = [];
-  const objectLayers: any[] = [];
-
-  for (const layer of layers) {
-    const name = layer.name.toLowerCase();
-    if (name.includes('ground') || name.includes('bottom') || name.includes('floor')) {
-      bgLayers.push(layer);
-    } else {
-      objectLayers.push(layer);
-    }
-  }
-
-  return { bgLayers, objectLayers };
-}
-
-// Get collision layers
-// Only Collisions layer is impassable
-function getCollisionLayers(layers: any[]) {
-  return layers.filter((layer: any) => {
-    if (layer.type !== 'tilelayer') return false;
-    if (!layer.data || layer.data.length === 0) return false;
-
-    const name = layer.name.toLowerCase();
-    // Only Collisions layer blocks movement
-    return name === 'collisions';
-  });
-}
-
-// Get exterior ground layer for spawn locations
-function getExteriorGroundLayer(layers: any[]) {
-  return layers.find((layer: any) => {
-    if (layer.type !== 'tilelayer') return false;
-    if (!layer.data || layer.data.length === 0) return false;
-
-    const name = layer.name.toLowerCase();
-    return name === 'exterior ground';
-  });
-}
-
-// Convert the map
-const visibleLayers = getVisibleLayers(tiledMap.layers, layerFilter);
-console.log(`Found ${visibleLayers.length} visible layers (will be rendered)`);
-
-// Get collision layers separately (not rendered, only for collision detection)
-const collisionLayers = getCollisionLayers(tiledMap.layers);
-console.log(`Collision layers: ${collisionLayers.length} (not rendered, collision detection only)`);
-
-// Get exterior ground layer for spawn locations
-const exteriorGroundLayer = getExteriorGroundLayer(tiledMap.layers);
-const exteriorGroundTiles = exteriorGroundLayer
-  ? convertLayerTo2D(exteriorGroundLayer.data, tiledMap.width, tiledMap.height)
-  : undefined;
-
-if (exteriorGroundTiles) {
-  console.log('✓ Found Exterior Ground layer for spawn locations');
-} else {
-  console.warn('⚠ No Exterior Ground layer found. Spawn will use any ground tiles.');
-}
-
-// Convert tilesets
-const tilesets = tiledMap.tilesets.map((ts: any) => {
-  let imagePath = ts.image.replace(/^\.\.\//, '').replace(/^\.\//, '');
-  return {
-    name: ts.name,
-    firstgid: ts.firstgid,
-    tileWidth: ts.tilewidth,
-    tileHeight: ts.tileheight,
-    imageUrl: `${assetsUrlPrefix}${imagePath}`,
-    imageWidth: ts.imagewidth,
-    imageHeight: ts.imageheight,
-    tileCount: ts.tilecount,
-    columns: ts.columns,
-  };
-});
-
-// Convert all visible layers to bgTiles (for rendering)
-const bgTiles = visibleLayers.map(layer =>
-  convertLayerTo2D(layer.data, tiledMap.width, tiledMap.height)
+const serializedMap = convertTiledMapToAITown(
+  tiledMap,
+  mapName,
+  assetsUrlPrefix,
+  layerFilter,
+  true // Enable semantic map parsing
 );
-
-// Convert collision layers (for collision detection only, not rendered)
-const collisionTiles = collisionLayers.map(layer =>
-  convertLayerTo2D(layer.data, tiledMap.width, tiledMap.height)
-);
-
-// Use collision layers for movement blocking if available
-const finalObjectTiles = collisionTiles.length > 0 ? collisionTiles : [];
-if (collisionTiles.length > 0) {
-  console.log(`✓ Using ${collisionTiles.length} collision layer(s) for movement blocking (not rendered)`);
-} else {
-  console.warn('⚠ No collision layers found! Movement will not be blocked.');
-  console.warn('  Add a "Collision" layer in Tiled for proper collision detection.');
-}
 
 // Generate TypeScript module
 const output = `// Generated map
@@ -209,17 +80,7 @@ const output = `// Generated map
 
 import type { SerializedWorldMap } from '../../convex/aiTown/worldMap';
 
-export const mapData: SerializedWorldMap = {
-  width: ${tiledMap.width},
-  height: ${tiledMap.height},
-  tileDim: ${tiledMap.tilewidth},
-  mapName: '${mapName}',
-  tilesets: ${JSON.stringify(tilesets, null, 2)},
-  bgTiles: ${JSON.stringify(bgTiles)},
-  objectTiles: ${JSON.stringify(finalObjectTiles)},
-  animatedSprites: [],
-  exteriorGroundLayer: ${JSON.stringify(exteriorGroundTiles)},
-};
+export const mapData: SerializedWorldMap = ${JSON.stringify(serializedMap, null, 2)};
 
 export default mapData;
 `;
@@ -234,12 +95,118 @@ if (!fs.existsSync(outputDir)) {
 
 fs.writeFileSync(outputPath, output, 'utf-8');
 
+// Print summary
+console.log(`\n${'='.repeat(60)}`);
 console.log(`✓ Map converted successfully!`);
-console.log(`  Output: ${outputPath}`);
-console.log(`  Size: ${tiledMap.width}x${tiledMap.height}`);
-console.log(`  Tilesets: ${tilesets.length}`);
-console.log(`  Rendered Layers: ${bgTiles.length}`);
-console.log(`  Collision Layers: ${collisionTiles.length}`);
+console.log(`${'='.repeat(60)}\n`);
+console.log(`Output: ${outputPath}`);
+console.log(``);
+console.log(`Summary:`);
+console.log(`  Map Size: ${serializedMap.width}x${serializedMap.height}`);
+console.log(`  Tilesets: ${serializedMap.tilesets?.length || 0}`);
+console.log(`  Rendered Layers: ${serializedMap.bgTiles?.length || 0}`);
+console.log(`  Collision Layers: ${serializedMap.objectTiles?.length || 0}`);
+console.log(`  Exterior Ground: ${serializedMap.exteriorGroundLayer ? 'Yes' : 'No'}`);
+console.log(`  Semantic Map: ${serializedMap.semanticMap ? 'Yes ✓' : 'No'}`);
+
+if (serializedMap.semanticMap) {
+  console.log(`\n  📍 Semantic Map Details:`);
+
+  const addressCount = serializedMap.semanticMap.addressTiles.length;
+  console.log(`    Total Addresses: ${addressCount}`);
+
+  // Count addresses by type
+  const sectorAddresses = serializedMap.semanticMap.addressTiles.filter(
+    e => !e.address.includes('<spawn_loc>') && (e.address.match(/:/g) || []).length === 1
+  );
+  const arenaAddresses = serializedMap.semanticMap.addressTiles.filter(
+    e => !e.address.includes('<spawn_loc>') && (e.address.match(/:/g) || []).length === 2
+  );
+  const objectAddresses = serializedMap.semanticMap.addressTiles.filter(
+    e => !e.address.includes('<spawn_loc>') && (e.address.match(/:/g) || []).length === 3
+  );
+  const spawnAddresses = serializedMap.semanticMap.addressTiles.filter(
+    e => e.address.includes('<spawn_loc>')
+  );
+
+  console.log(`      - Sectors: ${sectorAddresses.length}`);
+  console.log(`      - Arenas: ${arenaAddresses.length}`);
+  console.log(`      - Game Objects: ${objectAddresses.length}`);
+  console.log(`      - Spawn Locations: ${spawnAddresses.length}`);
+
+  // Count tiles with semantic data
+  let tilesWithSemantics = 0;
+  let tilesWithArena = 0;
+  let tilesWithObjects = 0;
+
+  for (const row of serializedMap.semanticMap.tiles) {
+    for (const tile of row) {
+      if (tile.sector || tile.arena || tile.game_object || tile.spawning_location) {
+        tilesWithSemantics++;
+      }
+      if (tile.arena) tilesWithArena++;
+      if (tile.game_object) tilesWithObjects++;
+    }
+  }
+
+  const totalTiles = serializedMap.width * serializedMap.height;
+  const coveragePercent = ((tilesWithSemantics / totalTiles) * 100).toFixed(1);
+
+  console.log(`\n    Coverage:`);
+  console.log(`      - ${tilesWithSemantics} / ${totalTiles} tiles (${coveragePercent}%)`);
+  console.log(`      - ${tilesWithArena} tiles in arenas`);
+  console.log(`      - ${tilesWithObjects} tiles with objects`);
+
+  // Show sample addresses by category
+  console.log(`\n    Sample Addresses:`);
+
+  if (sectorAddresses.length > 0) {
+    console.log(`      Sectors:`);
+    sectorAddresses.slice(0, 2).forEach((entry) => {
+      console.log(`        • ${entry.address} (${entry.coordinates.length} tiles)`);
+    });
+  }
+
+  if (arenaAddresses.length > 0) {
+    console.log(`      Arenas:`);
+    arenaAddresses.slice(0, 3).forEach((entry) => {
+      console.log(`        • ${entry.address} (${entry.coordinates.length} tiles)`);
+    });
+  }
+
+  if (objectAddresses.length > 0) {
+    console.log(`      Game Objects:`);
+    objectAddresses.slice(0, 3).forEach((entry) => {
+      console.log(`        • ${entry.address} (${entry.coordinates.length} tiles)`);
+    });
+  }
+
+  if (spawnAddresses.length > 0) {
+    console.log(`      Spawn Locations:`);
+    spawnAddresses.slice(0, 3).forEach((entry) => {
+      console.log(`        • ${entry.address} (${entry.coordinates.length} tiles)`);
+    });
+  }
+
+  // Show sample tile semantics at specific coordinates
+  console.log(`\n    Sample Tile Data:`);
+  let samplesShown = 0;
+  for (let y = 0; y < serializedMap.height && samplesShown < 3; y++) {
+    for (let x = 0; x < serializedMap.width && samplesShown < 3; x++) {
+      const tile = serializedMap.semanticMap.tiles[y][x];
+      if (tile.game_object) {
+        console.log(`      Tile (${x}, ${y}):`);
+        console.log(`        World: "${tile.world}"`);
+        if (tile.sector) console.log(`        Sector: "${tile.sector}"`);
+        if (tile.arena) console.log(`        Arena: "${tile.arena}"`);
+        if (tile.game_object) console.log(`        Object: "${tile.game_object}"`);
+        if (tile.spawning_location) console.log(`        Spawn: "${tile.spawning_location}"`);
+        samplesShown++;
+      }
+    }
+  }
+}
+
 console.log(``);
 console.log(`Next steps:`);
 console.log(`1. Import in data/mapConfig.ts:`);
@@ -250,3 +217,4 @@ console.log(`   ${mapName}: {`);
 console.log(`     name: 'Your Map Name',`);
 console.log(`     data: ${mapName}Map,`);
 console.log(`   },`);
+console.log(``);
